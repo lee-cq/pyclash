@@ -1,0 +1,11 @@
+---
+
+version: 1
+
+clash_core:
+  open_clash:
+    '1.9.1': 
+      - https://ss
+  
+  premium:
+    latest: https://release.dreamacro.workers.dev/latest/clash-linux-amd64-latest.gz

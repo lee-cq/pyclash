@@ -2,10 +2,21 @@
 
 version: 1
 
+config_uri: https://www.efcloud.com/api/v1/config
+config_path: pyclash/pyclash_config.yaml
+
+parsers:
+  prepend-rules:
+    - DOMAIN,test.com,DIRECT # rules最前面增加一个规则
+
+  append-rules:
+    - DOMAIN,test.com,DIRECT # rules最后面增加一个规则
+
 clash_core:
   open_clash:
-    '1.9.1': 
+    '1.9.1':
       - https://ss
-  
+
   premium:
     latest: https://release.dreamacro.workers.dev/latest/clash-linux-amd64-latest.gz
+    uri: https://release.dreamacro.workers.dev/{version}/clash-{os}-{platform}-{version}.gz

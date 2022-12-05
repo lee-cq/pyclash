@@ -4,6 +4,10 @@ __pycache__/
 *$py.class
 ShellClash/
 clash*
+config/*
+.fleet/
+.tmp/
+tmp/
 
 # C extensions
 *.so

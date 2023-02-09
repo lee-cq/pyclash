@@ -7,10 +7,8 @@
 """
 import tempfile
 from pathlib import Path
-from subprocess import run
 
-import pytest
-from pyclash.update_proxies import UpdateProxies
+from pyclash.update.update_proxies import UpdateProxies
 
 
 def test_update_proxies():
@@ -32,6 +30,5 @@ def test_update_proxies():
         )
         print(clash_file.read_text(encoding='utf8'))
         assert 'proxies' in clash_file.read_text(encoding='utf8')
-
 
 # TODO 补全UpdateProxyGroup Test

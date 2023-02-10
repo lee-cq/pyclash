@@ -1,17 +1,22 @@
 #!/usr/bin/python3
 # -*- coding: utf-8 -*-
 """
-@File Name  : update_rules.py
+@File Name  : update_proxies.py
 @Author     : LeeCQ
 @Date-Time  : 2023/2/8 21:50
 
 更新代理
 """
+import logging
 import os
 from pathlib import Path
 
 from requests import get
-from yaml import safe_load, safe_dump
+from yaml import safe_load
+
+from pyclash.update.update_base import get_clash_config, save_clash_config
+
+logger = logging.getLogger('pyclash.update.proxies')
 
 
 class UpdateProxies:
@@ -36,19 +41,6 @@ class UpdateProxies:
 
         os.environ['http_proxy'] = url
         os.environ['https_proxy'] = url
-
-    @property
-    def dic_config(self):
-        return safe_load(self.clash_config.read_text(encoding='utf8'))
-
-    def save_config(self, dic):
-        return self.clash_config.write_text(
-            safe_dump(dic,
-                      allow_unicode=True,
-                      sort_keys=False,
-                      ),
-            encoding='utf8'
-        )
 
     def download_subscription(self):
         """下载订阅信息"""
@@ -76,7 +68,7 @@ class UpdateProxies:
 
     def update_clash_config(self):
         """"""
-        dic_config = self.dic_config
+        dic_config = get_clash_config(self.clash_config)
 
         if self.merge:
             _proxies = set(dic_config.get('proxies', [])) | self.new_proxies
@@ -84,7 +76,7 @@ class UpdateProxies:
             _proxies = self.new_proxies
 
         dic_config['proxies'] = _proxies
-        self.save_config(dic_config)
+        save_clash_config(self.clash_config, dic_config)
 
     def update_proxy_groups(self):
         """更新代理组信息"""
@@ -104,12 +96,13 @@ class UpdateProxies:
             update_group(group, all_proxies_name, proxy_providers_name) for group in proxy_groups
         ]
         print(dic_config['proxy-groups'])
-        self.save_config(dic_config)
+        save_clash_config(self.clash_config, dic_config)
 
 
 if __name__ == '__main__':
     file_dir = Path(__file__).parent
     UpdateProxies(
         clash_config=file_dir / 'config.yaml',
-        subscription_url="https://www.efcloud.cc/api/v1/client/subscribe?token=13478b96595061e2d3f63a8880fd3e23&flag=clash"
+        subscription_url="https://www.efcloud.cc/api/v1/client/subscribe?"
+                         "token=13478b96595061e2d3f63a8880fd3e23&flag=clash"
     )

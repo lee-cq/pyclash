@@ -5,17 +5,48 @@
 @Author     : LeeCQ
 @Date-Time  : 2023/2/12 21:47
 """
+
 import asyncio
 import logging
 import time
 import urllib.parse
-from collections import defaultdict, namedtuple
+from collections import namedtuple
 
+import aiohttp
 import websockets
 
 from pyclash.monitor.data_parse import parse_logs, parse_traffic, parse_tracing
 
 logger = logging.getLogger('pyclash.monitor.async_websocket')
+
+
+class AsyncQueue(asyncio.Queue):
+
+    def __init__(self, maxsize=0, *, loop=None):
+        super().__init__(maxsize=maxsize, loop=loop)
+        self.count_put = 0
+        self.count_get = 0
+
+    def get_all(self):
+        """获取所有消息"""
+
+        def _get_all():
+            while not self.empty():
+                yield self.get_nowait()
+
+        return [i for i in _get_all()]
+
+    def put_nowait(self, item) -> None:
+        """Put an item into the queue without blocking. """
+        self.count_put += 1
+        return super().put_nowait(item)
+
+    def get_nowait(self):
+        """Remove and return an item from the queue without blocking.
+        Only get an item if one is immediately available.
+        """
+        self.count_get += 1
+        return super().get_nowait()
 
 
 async def websocket_app(uri: str, on_message: asyncio.Queue):
@@ -51,6 +82,21 @@ class MonitorAsync:
 
         self.clash_events = {'/profile/tracing', '/traffic', '/logs', }  # /events
 
+        self.count_push_request = 0
+        self.count_push_request_error = 0
+
+    @property
+    def count_received_message(self):
+        return self.message_queue.count_get
+
+    @property
+    def count_pushed_message(self):
+        return self.push_queue.count_put
+
+    @property
+    def count_pushed_error_message(self):
+        return self.push_error_queue.count_get
+
     def add_loki(self, loki_url: str, loki_username: str, loki_password: str):
         """add loki info"""
         self.loki_info.add(self._loki_info(loki_url, loki_username, loki_password))
@@ -70,16 +116,6 @@ class MonitorAsync:
                     name=f'websocket_{clash.host}:{clash.port}_{event.replace("/", "_")}'
                 )
 
-    async def post_loki(self, data: dict):
-        """post loki
-
-        eg. https://github.com/sleleko/devops-kb/blob/master/python/push-to-loki.py
-        """
-        for loki_url, loki_user, loki_token in self.loki_info:
-            logger.debug('put info to Class: %s', loki_url)
-            key = self._post_data(loki_url, loki_user, loki_token)
-            await self.push_queue_dict[key].put(data)
-
     async def parse(self):
         case = {
             'logs': parse_logs,
@@ -92,17 +128,45 @@ class MonitorAsync:
             # noinspection PyArgumentList
             _parse = case.get(data['type'], lambda x: x)(data)
             logger.debug('生成结果：%s', _parse)
-            await self.post_loki(_parse)
+            await self.push_queue.put(_parse)
 
-    async def _push_message(self):
+    async def _post(self, session: aiohttp.ClientSession, url, user, token, data_s):
+        """异步推送数据"""
+
+        async with session.post(url, json={'streams': data_s}, auth=(user, token)) as resp:
+            logger.info('推送数据到Loki: %s, %s', url, resp.status)
+            if resp.status != 204:
+                self.count_push_request_error += 1
+                await self.push_error_queue.put(resp) # fixme: 未处理
+
+    async def post_loki(self):
         """数据推送"""
         # TODO: 添加数据推送
+        logger.info('start PushToLokiSync in Thread: %s', '')
+
+        async with aiohttp.ClientSession() as session:
+            while True:
+
+                # for i in  asyncio.all_tasks() if i.name == 'push_message':
+
+                data_s = self.push_queue.get_all()
+
+                for url, user, token in self.loki_info:
+                    logger.info('开始推送数据到Loki: %s', url)
+                    host = urllib.parse.urlparse(url).netloc
+                    sum(1 for i in asyncio.all_tasks()
+                        if i.get_name().startswith(f'loki_push_{host}')) # fixme: 未处理
+
+                    asyncio.create_task(self._post(session, url, user, token, data_s),
+                                        name=f'loki_push_{host}')
+                    self.count_push_request += 1
 
     async def _run(self):
         """异步构造函数"""
         # 初始化消息队列
-        self.message_queue = asyncio.Queue()
-        self.push_queue_dict = defaultdict(asyncio.Queue)
+        self.message_queue = AsyncQueue()
+        self.push_queue = AsyncQueue()
+        self.push_error_queue = AsyncQueue()
 
         # 添加WebSocket 监控信息接收 任务
         self.add_websocket_tasks()
@@ -111,7 +175,7 @@ class MonitorAsync:
         asyncio.create_task(self.parse(), name='parse_message')
 
         # 添加数据推送任务
-        asyncio.create_task(self._push_message(), name='push_message')
+        asyncio.create_task(self.post_loki(), name='push_message')
 
         while True:
             print(await self.message_queue.get())
